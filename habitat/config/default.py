@@ -8,7 +8,6 @@ from typing import List, Optional, Union
 
 import yacs.config
 
-# from habitat.config import Config as CN # type: ignore
 
 # Default Habitat config node
 class Config(yacs.config.CfgNode):
@@ -150,15 +149,14 @@ _C.TASK.TOP_DOWN_MAP = CN()
 _C.TASK.TOP_DOWN_MAP.TYPE = "TopDownMap"
 _C.TASK.TOP_DOWN_MAP.MAX_EPISODE_STEPS = _C.ENVIRONMENT.MAX_EPISODE_STEPS
 _C.TASK.TOP_DOWN_MAP.MAP_PADDING = 3
-_C.TASK.TOP_DOWN_MAP.NUM_TOPDOWN_MAP_SAMPLE_POINTS = 20000
-_C.TASK.TOP_DOWN_MAP.MAP_RESOLUTION = 1250
+_C.TASK.TOP_DOWN_MAP.MAP_RESOLUTION = 1024
 _C.TASK.TOP_DOWN_MAP.DRAW_SOURCE = True
 _C.TASK.TOP_DOWN_MAP.DRAW_BORDER = True
 _C.TASK.TOP_DOWN_MAP.DRAW_SHORTEST_PATH = True
 _C.TASK.TOP_DOWN_MAP.FOG_OF_WAR = CN()
 _C.TASK.TOP_DOWN_MAP.FOG_OF_WAR.DRAW = True
 _C.TASK.TOP_DOWN_MAP.FOG_OF_WAR.VISIBILITY_DIST = 5.0
-_C.TASK.TOP_DOWN_MAP.FOG_OF_WAR.FOV = 90
+_C.TASK.TOP_DOWN_MAP.FOG_OF_WAR.FOV = 90.0
 _C.TASK.TOP_DOWN_MAP.DRAW_VIEW_POINTS = True
 _C.TASK.TOP_DOWN_MAP.DRAW_GOAL_POSITIONS = True
 # Axes aligned bounding boxes
@@ -225,7 +223,8 @@ _C.SIMULATOR.DEFAULT_AGENT_ID = 0
 SIMULATOR_SENSOR = CN()
 SIMULATOR_SENSOR.HEIGHT = 480
 SIMULATOR_SENSOR.WIDTH = 640
-SIMULATOR_SENSOR.HFOV = 90  # horizontal field of view in degrees
+SIMULATOR_SENSOR.HFOV = 90.0  # horizontal field of view in degrees
+# SIMULATOR_SENSOR.HFOV = 90  # horizontal field of view in degrees
 SIMULATOR_SENSOR.POSITION = [0, 1.25, 0]
 SIMULATOR_SENSOR.ORIENTATION = [0.0, 0.0, 0.0]  # Euler's angles
 # -----------------------------------------------------------------------------
@@ -279,7 +278,7 @@ _C.SIMULATOR.HABITAT_SIM_V0.GPU_GPU = False
 _C.SIMULATOR.HABITAT_SIM_V0.ALLOW_SLIDING = True
 _C.SIMULATOR.HABITAT_SIM_V0.ENABLE_PHYSICS = False
 _C.SIMULATOR.HABITAT_SIM_V0.PHYSICS_CONFIG_FILE = (
-    "./data/default.phys_scene_config.json"
+    "./data/default.physics_config.json"
 )
 # -----------------------------------------------------------------------------
 # PYROBOT

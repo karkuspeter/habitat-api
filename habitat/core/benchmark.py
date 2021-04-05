@@ -17,13 +17,16 @@ from habitat.config.default import get_config
 from habitat.core.agent import Agent
 from habitat.core.env import Env
 
+import numpy as np
+import time
+import sys
+
 
 class Benchmark:
-    r"""Benchmark for evaluating agents in environments.
-    """
+    r"""Benchmark for evaluating agents in environments."""
 
     def __init__(
-        self, config_paths: Optional[str] = None, eval_remote=False
+        self, config_paths: Optional[str] = None, eval_remote: bool = False
     ) -> None:
         r"""..
 
@@ -39,16 +42,17 @@ class Benchmark:
             self._env = Env(config=config_env)
 
     def remote_evaluate(
-        self, agent: Agent, num_episodes: Optional[int] = None
+        self, agent: "Agent", num_episodes: Optional[int] = None
     ):
         # The modules imported below are specific to habitat-challenge remote evaluation.
-        # These modules are not part of the habitat-api repository.
-        import evaluation_pb2
-        import evaluation_pb2_grpc
-        import evalai_environment_habitat
-        import grpc
+        # These modules are not part of the habitat-lab repository.
         import pickle
         import time
+
+        import evalai_environment_habitat  # noqa: F401
+        import evaluation_pb2
+        import evaluation_pb2_grpc
+        import grpc
 
         time.sleep(60)
 
@@ -113,7 +117,10 @@ class Benchmark:
 
         return avg_metrics
 
-    def local_evaluate(self, agent: Agent, num_episodes: Optional[int] = None):
+    def local_evaluate(
+        self, agent: "Agent", num_episodes: Optional[int] = None,
+        skip_first_n: Optional[int] = 0
+    ) -> Dict[str, float]:
         if num_episodes is None:
             num_episodes = len(self._env.episodes)
         else:
@@ -127,27 +134,106 @@ class Benchmark:
         assert num_episodes > 0, "num_episodes should be greater than 0"
 
         agg_metrics: Dict = defaultdict(float)
+        episode_metrics = dict(scene=[], num_steps=[], time=[], num_collisions=[], xy_error=[], spl=[], softspl=[], success=[])
+        last_success = None
+
+        for _ in range(skip_first_n):
+            self._env.reset()
 
         count_episodes = 0
-        while count_episodes < num_episodes:
+        try:
+            while count_episodes < num_episodes:
+                agent.reset(last_success=last_success)
+                observations = self._env.reset()
+
+                # Skip infeasible episodes. This is easy to detect using spl
+                # because start-to-path is recomputed and if it is infinite
+                # spl will become nan.
+                while not np.isfinite(self._env.get_metrics()['spl']):
+                    observations = self._env.reset()
+
+                # metrics = self._env.get_metrics()
+                action = None
+                num_steps = 0
+                t = time.time()
+
+                while not self._env.episode_over:
+                    action = agent.act(observations)
+                    observations = self._env.step(action)
+                    num_steps += 1
+                    # metrics = self._env.get_metrics()
+                episode_time = time.time() - t
+
+                metrics = self._env.get_metrics()
+                if isinstance(action, dict) and 'xy_error' in action.keys():
+                    # Add all outputs to metrics
+                    for key, val in action.items():
+                        try:
+                            metrics[str(key)] = float(val)
+                        except TypeError:
+                            pass
+                    xy_error = action['xy_error']
+                else:
+                    xy_error = 999.
+                metrics['small_error'] = 1. if xy_error < 7.2 else 0.  # 0.36 / 0.05
+                metrics['episode_length'] = num_steps
+                metrics['time'] = episode_time
+                if 'softspl' not in metrics.keys():
+                    metrics['softspl'] = 0.
+
+                for m, v in metrics.items():
+                    if m != 'top_down_map':
+                        agg_metrics[m] += v
+                count_episodes += 1
+
+                episode_metrics['scene'].append(self._env.current_episode.scene_id)
+                episode_metrics['num_steps'].append(num_steps)
+                episode_metrics['time'].append(episode_time)
+                episode_metrics['xy_error'].append(xy_error)
+                episode_metrics['spl'].append(metrics['spl'])
+                episode_metrics['softspl'].append(metrics['softspl'])
+                episode_metrics['success'].append(metrics['success'])
+                last_success = metrics['success']
+
+                print ("%d/%d: Meann success: %f, spl: %f. err: %f This trial success: %f. SPL: %f  SOFT_SPL: %f. err %f"%(
+                    count_episodes, num_episodes,
+                    agg_metrics['success'] / count_episodes, agg_metrics['spl'] / count_episodes,
+                    agg_metrics['xy_error'] / count_episodes,
+                    metrics['success'], metrics['spl'], metrics['softspl'],
+                    metrics['xy_error']))
+
+            # One more agent reset, so last data can be saved.
             agent.reset()
-            observations = self._env.reset()
 
-            while not self._env.episode_over:
-                action = agent.act(observations)
-                observations = self._env.step(action)
-
-            metrics = self._env.get_metrics()
-            for m, v in metrics.items():
-                agg_metrics[m] += v
-            count_episodes += 1
+        except KeyboardInterrupt:
+            print ("interrupt")
 
         avg_metrics = {k: v / count_episodes for k, v in agg_metrics.items()}
+        avg_metrics['num_episodes'] = count_episodes
+        avg_metrics['input_args'] = ' '.join([str(x) for x in sys.argv])
+
+        try:
+            print (avg_metrics['input_args'])
+            print (agent.params.name)
+        except:
+            pass
+
+
+        import json
+        timestamp_str = time.strftime('%m-%d-%H-%M-%S', time.localtime())
+        filename = './temp/evals/eval_{}'.format(timestamp_str)
+        with open(filename + '.summary.json', 'w') as file:
+            json.dump(avg_metrics, file, indent=4)
+        print (filename + '.summary.json')
+        with open(filename + '.episodes.json', 'w') as file:
+            json.dump(episode_metrics, file, indent=4)
+        print (filename + '.episodes.json')
 
         return avg_metrics
 
     def evaluate(
-        self, agent: Agent, num_episodes: Optional[int] = None
+        self, agent: "Agent", num_episodes: Optional[int] = None,
+        skip_first_n: Optional[int] = 0
     ) -> Dict[str, float]:
         r"""..
 
@@ -160,4 +246,4 @@ class Benchmark:
         if self._eval_remote is True:
             return self.remote_evaluate(agent, num_episodes)
         else:
-            return self.local_evaluate(agent, num_episodes)
+            return self.local_evaluate(agent, num_episodes, skip_first_n=skip_first_n)
